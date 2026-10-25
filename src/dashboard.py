@@ -230,44 +230,58 @@ else:
 with st.expander("🔍 View Raw Business Data"):
     st.dataframe(filtered.reset_index(drop=True), use_container_width=True, hide_index=True)
 
-# ── Email Alerts ───────────────────────────────────────────────────────────────
-st.divider()
-st.subheader("📧 Email Alert")
+# ── Auto Email Alerts ─────────────────────────────────────────────────────────
+# Automatically sends an email the moment anomalies are detected.
+# Uses session_state keyed on a fingerprint of the current anomaly set
+# so the email fires only ONCE per unique anomaly batch — not on every rerender.
 
 email_sender   = get_config("EMAIL_SENDER")
 email_password = get_config("EMAIL_PASSWORD")
 email_receiver = get_config("EMAIL_RECEIVER")
 
+# Build a fingerprint from the current anomaly set
+anomaly_fingerprint = "|".join(
+    f"{a['Metric']}-{a['Direction']}-{a['Deviation (%)']}" for a in anomalies
+) if anomalies else ""
+
+if "last_alerted_fingerprint" not in st.session_state:
+    st.session_state.last_alerted_fingerprint = ""
+
+# ── Auto-send when anomalies are new ──────────────────────────────────────────
+if anomalies and email_sender and email_password and email_receiver:
+    if st.session_state.last_alerted_fingerprint != anomaly_fingerprint:
+        from report_generator import generate_executive_summary
+        summary = generate_executive_summary(anomalies, insights)
+        body = "INSIGHTGUARD BUSINESS ALERT\n\n" + summary + "\n\n"
+        body += "ANOMALY DETAILS:\n"
+        for a in anomalies:
+            body += f"  • {a['Metric']}: {a['Direction']} {abs(a['Deviation (%)']):.2f}% [{a['Severity']}]\n"
+        body += f"\nDate analysed: {latest['Date'].strftime('%Y-%m-%d')}"
+        body += "\n\n-- InsightGuard Automated Alert System"
+
+        ok = send_email_alert(
+            email_sender, email_password, email_receiver,
+            f"InsightGuard Alert — {len(anomalies)} Anomaly/Anomalies Detected", body
+        )
+        if ok:
+            st.session_state.last_alerted_fingerprint = anomaly_fingerprint
+
+# ── Email Status Banner ────────────────────────────────────────────────────────
+st.divider()
+st.subheader("📧 Email Alert Status")
+
 if not email_sender or not email_password:
     st.info(
-        "Email alerts are not configured. "
+        "Auto email alerts are **not configured**. "
         "Add `EMAIL_SENDER`, `EMAIL_PASSWORD`, and `EMAIL_RECEIVER` to your "
-        "`.env` file (local) or Streamlit Cloud **Secrets** (deployed)."
+        "`.env` file (local) or Streamlit Cloud **Secrets** (deployed) "
+        "and alerts will send automatically when anomalies are detected."
     )
+elif not anomalies:
+    st.success("✅ No anomalies — no alert needed.")
+elif st.session_state.last_alerted_fingerprint == anomaly_fingerprint:
+    st.success(f"✅ Alert email automatically sent to **{email_receiver}**.")
 else:
-    with st.form("email_form"):
-        to_addr = st.text_input("Send alert to", value=email_receiver or "")
-        custom_note = st.text_area("Optional note", placeholder="Add any extra context here...")
-        send_btn = st.form_submit_button("Send Anomaly Alert Email")
-
-    if send_btn:
-        if not anomalies:
-            st.warning("No anomalies detected in the selected period — nothing to send.")
-        elif not to_addr:
-            st.error("Please enter a recipient email address.")
-        else:
-            from report_generator import generate_executive_summary
-            summary = generate_executive_summary(anomalies, insights)
-            body = "INSIGHTGUARD BUSINESS ALERT\n\n" + summary + "\n\n"
-            for a in anomalies:
-                body += f"{a['Metric']}: {a['Direction']} {abs(a['Deviation (%)']):.2f}% [{a['Severity']}]\n"
-            if custom_note:
-                body += f"\nNote:\n{custom_note}"
-            ok = send_email_alert(email_sender, email_password, to_addr,
-                                  "InsightGuard - Business Anomaly Detected", body)
-            if ok:
-                st.success(f"Email sent to {to_addr}!")
-            else:
-                st.error("Failed to send email. Check your credentials.")
+    st.warning("⚠️ Anomalies detected but email could not be sent. Check your credentials.")
 
 st.caption("InsightGuard | Automated Business Analytics & Anomaly Monitoring System")
