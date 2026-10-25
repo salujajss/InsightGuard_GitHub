@@ -31,5 +31,6 @@ save_alert_history(anomalies,OUTPUT_DIR,latest["Date"].strftime("%Y-%m-%d"))
 if anomalies:
     body="INSIGHTGUARD BUSINESS ALERT\n\n"+executive_summary+"\n\n"
     for a in anomalies: body+=f"{a['Metric']}: {a['Direction']} {abs(a['Deviation (%)']):.2f}% [{a['Severity']}]\n"
-    send_email_alert(EMAIL_SENDER,EMAIL_PASSWORD,EMAIL_RECEIVER,"InsightGuard - Business Anomaly Detected",body)
+    ok, err = send_email_alert(EMAIL_SENDER,EMAIL_PASSWORD,EMAIL_RECEIVER,"InsightGuard - Business Anomaly Detected",body)
+    if not ok: print(f"Email error: {err}")
 print("\nCompleted successfully.")

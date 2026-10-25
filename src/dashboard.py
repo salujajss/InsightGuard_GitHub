@@ -257,7 +257,7 @@ def build_alert_body():
 # Auto-send only when: API key set + default receiver set + new anomaly fingerprint
 if anomalies and resend_api_key and default_receiver:
     if st.session_state.last_alerted_fingerprint != anomaly_fingerprint:
-        ok = send_email_alert(
+        ok, err = send_email_alert(
             resend_api_key, default_receiver,
             f"InsightGuard Alert — {len(anomalies)} Anomaly/Anomalies Detected",
             build_alert_body()
@@ -265,12 +265,17 @@ if anomalies and resend_api_key and default_receiver:
         if ok:
             st.session_state.last_alerted_fingerprint = anomaly_fingerprint
             st.session_state.auto_send_failed = False
+            st.session_state.auto_send_error = ""
         else:
             st.session_state.auto_send_failed = True
+            st.session_state.auto_send_error = err
 
 # ── Email Status + Manual Send ────────────────────────────────────────────────
 st.divider()
 st.subheader("📧 Email Alerts")
+
+if "auto_send_error" not in st.session_state:
+    st.session_state.auto_send_error = ""
 
 if not resend_api_key:
     st.info("Email alerts ready — add `RESEND_API_KEY` to Secrets to activate.")
@@ -283,7 +288,7 @@ else:
     elif st.session_state.last_alerted_fingerprint == anomaly_fingerprint:
         st.success(f"✅ Auto-alert sent to **{default_receiver}**.")
     elif st.session_state.auto_send_failed:
-        st.error("❌ Auto-send failed. Check your RESEND_API_KEY in Secrets.")
+        st.error(f"❌ Auto-send failed: {st.session_state.auto_send_error or 'unknown error'}")
     else:
         st.info("📤 Sending auto-alert...")
 
@@ -299,7 +304,7 @@ else:
         elif not anomalies:
             st.warning("No anomalies in the selected period — nothing to send.")
         else:
-            ok = send_email_alert(
+            ok, err = send_email_alert(
                 resend_api_key, to_addr,
                 f"InsightGuard Report — {len(anomalies)} Anomaly/Anomalies Detected",
                 build_alert_body()
@@ -307,7 +312,8 @@ else:
             if ok:
                 st.success(f"✅ Report sent to **{to_addr}**!")
             else:
-                st.error("Failed to send. Check your RESEND_API_KEY.")
+                st.error(f"Failed to send: {err}")
+
 
 
 st.caption("InsightGuard | Automated Business Analytics & Anomaly Monitoring System")
