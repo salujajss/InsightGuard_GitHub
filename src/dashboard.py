@@ -214,17 +214,42 @@ else:
 st.divider()
 st.subheader("📜 Alert History")
 
+# Build history: load CSV (if exists) + always show current anomalies
+history_rows = []
+
 if HISTORY.exists():
-    h = pd.read_csv(HISTORY)
-    h["Date"] = pd.to_datetime(h["Date"], errors="coerce")
-    # Filter history by selected range too
-    h_filtered = h[(h["Date"].dt.date >= start) & (h["Date"].dt.date <= end)]
+    try:
+        h = pd.read_csv(HISTORY)
+        h["Date"] = pd.to_datetime(h["Date"], errors="coerce")
+        history_rows.append(h)
+    except Exception:
+        pass
+
+# Always surface today's detected anomalies
+if anomalies:
+    today_rows = pd.DataFrame([{
+        "Date": latest["Date"].strftime("%Y-%m-%d"),
+        "Metric": a["Metric"],
+        "Direction": a["Direction"],
+        "Deviation (%)": a["Deviation (%)"],
+        "Severity": a["Severity"],
+    } for a in anomalies])
+    today_rows["Date"] = pd.to_datetime(today_rows["Date"])
+    history_rows.append(today_rows)
+
+if history_rows:
+    combined = pd.concat(history_rows, ignore_index=True).drop_duplicates()
+    combined["Date"] = pd.to_datetime(combined["Date"], errors="coerce")
+    combined = combined.sort_values("Date", ascending=False)
+    h_filtered = combined[
+        (combined["Date"].dt.date >= start) & (combined["Date"].dt.date <= end)
+    ]
     if h_filtered.empty:
-        st.info("No alerts recorded for the selected date range.")
+        st.info("No alerts for the selected date range.")
     else:
-        st.dataframe(h_filtered.sort_values("Date", ascending=False), use_container_width=True, hide_index=True)
+        st.dataframe(h_filtered.reset_index(drop=True), use_container_width=True, hide_index=True)
 else:
-    st.info("No alert history available yet. Run main.py to generate it.")
+    st.success("No anomalies detected — alert history is empty.")
 
 # ── Raw Data Expander ──────────────────────────────────────────────────────────
 with st.expander("🔍 View Raw Business Data"):
