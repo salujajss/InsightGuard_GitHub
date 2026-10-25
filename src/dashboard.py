@@ -79,11 +79,22 @@ st.sidebar.caption(f"{days_selected} day(s) selected")
 # ── Filter data ────────────────────────────────────────────────────────────────
 filtered = df[(df["Date"].dt.date >= start) & (df["Date"].dt.date <= end)].copy()
 
-# ── Run analytics on FULL data (for stable 7-day baseline) ────────────────────
-analysis = calculate_metrics(df.copy(), METRICS)
+if filtered.empty:
+    st.warning("No data available for the selected date range.")
+    st.stop()
 
-# Find the latest row WITHIN the selected date range for anomaly detection
-analysis_filtered = analysis[(analysis["Date"].dt.date >= start) & (analysis["Date"].dt.date <= end)]
+# ── Run analytics on filtered data so KPIs/anomalies reflect the selected range
+# We include enough leading rows for the 7-day rolling window to warm up
+WINDOW = 7
+start_idx = max(0, df[df["Date"].dt.date >= start].index.min() - WINDOW)
+extended = df.iloc[start_idx:].copy()
+analysis_extended = calculate_metrics(extended, METRICS, window=WINDOW)
+
+# Now slice back to the user's selected date range
+analysis_filtered = analysis_extended[
+    (analysis_extended["Date"].dt.date >= start) &
+    (analysis_extended["Date"].dt.date <= end)
+]
 
 if analysis_filtered.empty:
     st.warning("No data available for the selected date range.")
