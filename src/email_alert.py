@@ -1,14 +1,24 @@
-import smtplib
-from email.message import EmailMessage
+import resend
 
-def send_email_alert(sender,password,receiver,subject,body):
-    if not sender or not password or not receiver:
+
+def send_email_alert(api_key: str, to_email: str, subject: str, body: str) -> bool:
+    """
+    Send an email via the Resend API.
+    No sender password needed — just the Resend API key.
+    """
+    if not api_key or not to_email:
         print("Email configuration incomplete; alert not sent.")
         return False
     try:
-        msg=EmailMessage(); msg["From"]=sender; msg["To"]=receiver; msg["Subject"]=subject; msg.set_content(body)
-        with smtplib.SMTP_SSL("smtp.gmail.com",465) as server:
-            server.login(sender,password); server.send_message(msg)
-        print("Email alert sent successfully."); return True
+        resend.api_key = api_key
+        resend.Emails.send({
+            "from": "InsightGuard <onboarding@resend.dev>",
+            "to":   [to_email],
+            "subject": subject,
+            "text": body,
+        })
+        print(f"Email alert sent to {to_email}.")
+        return True
     except Exception as e:
-        print(f"Email could not be sent: {e}"); return False
+        print(f"Email could not be sent: {e}")
+        return False

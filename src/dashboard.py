@@ -230,14 +230,12 @@ else:
 with st.expander("🔍 View Raw Business Data"):
     st.dataframe(filtered.reset_index(drop=True), use_container_width=True, hide_index=True)
 
-# ── Auto Email Alerts ─────────────────────────────────────────────────────────
-# Automatically sends an email the moment anomalies are detected.
-# Uses session_state keyed on a fingerprint of the current anomaly set
-# so the email fires only ONCE per unique anomaly batch — not on every rerender.
+# ── Auto Email Alerts (Resend API) ────────────────────────────────────────────
+# Only needs RESEND_API_KEY in secrets — no Gmail password required.
+# Auto-sends when anomalies are detected. Users can also enter their own email.
 
-email_sender   = get_config("EMAIL_SENDER")
-email_password = get_config("EMAIL_PASSWORD")
-email_receiver = get_config("EMAIL_RECEIVER")
+resend_api_key  = get_config("RESEND_API_KEY")
+default_receiver = get_config("EMAIL_RECEIVER")  # optional default
 
 # Build a fingerprint from the current anomaly set
 anomaly_fingerprint = "|".join(
@@ -247,41 +245,68 @@ anomaly_fingerprint = "|".join(
 if "last_alerted_fingerprint" not in st.session_state:
     st.session_state.last_alerted_fingerprint = ""
 
-# ── Auto-send when anomalies are new ──────────────────────────────────────────
-if anomalies and email_sender and email_password and email_receiver:
-    if st.session_state.last_alerted_fingerprint != anomaly_fingerprint:
-        from report_generator import generate_executive_summary
-        summary = generate_executive_summary(anomalies, insights)
-        body = "INSIGHTGUARD BUSINESS ALERT\n\n" + summary + "\n\n"
-        body += "ANOMALY DETAILS:\n"
-        for a in anomalies:
-            body += f"  • {a['Metric']}: {a['Direction']} {abs(a['Deviation (%)']):.2f}% [{a['Severity']}]\n"
-        body += f"\nDate analysed: {latest['Date'].strftime('%Y-%m-%d')}"
-        body += "\n\n-- InsightGuard Automated Alert System"
+def build_alert_body():
+    from report_generator import generate_executive_summary
+    summary = generate_executive_summary(anomalies, insights)
+    body = "INSIGHTGUARD BUSINESS ALERT\n\n" + summary + "\n\nANOMALY DETAILS:\n"
+    for a in anomalies:
+        body += f"  • {a['Metric']}: {a['Direction']} {abs(a['Deviation (%)']):.2f}% [{a['Severity']}]\n"
+    body += f"\nDate analysed: {latest['Date'].strftime('%Y-%m-%d')}"
+    body += "\n\n-- InsightGuard Automated Alert System"
+    return body
 
+# Auto-send to default receiver when new anomalies hit
+if anomalies and resend_api_key and default_receiver:
+    if st.session_state.last_alerted_fingerprint != anomaly_fingerprint:
         ok = send_email_alert(
-            email_sender, email_password, email_receiver,
-            f"InsightGuard Alert — {len(anomalies)} Anomaly/Anomalies Detected", body
+            resend_api_key, default_receiver,
+            f"InsightGuard Alert — {len(anomalies)} Anomaly/Anomalies Detected",
+            build_alert_body()
         )
         if ok:
             st.session_state.last_alerted_fingerprint = anomaly_fingerprint
 
-# ── Email Status Banner ────────────────────────────────────────────────────────
+# ── Email Status + Manual Send ────────────────────────────────────────────────
 st.divider()
-st.subheader("📧 Email Alert Status")
+st.subheader("📧 Email Alerts")
 
-if not email_sender or not email_password:
+if not resend_api_key:
     st.info(
         "Auto email alerts are **not configured**. "
-        "Add `EMAIL_SENDER`, `EMAIL_PASSWORD`, and `EMAIL_RECEIVER` to your "
-        "`.env` file (local) or Streamlit Cloud **Secrets** (deployed) "
-        "and alerts will send automatically when anomalies are detected."
+        "Add `RESEND_API_KEY` (and optionally `EMAIL_RECEIVER`) to your "
+        "`.env` file (local) or Streamlit Cloud **Secrets** to enable them."
     )
-elif not anomalies:
-    st.success("✅ No anomalies — no alert needed.")
-elif st.session_state.last_alerted_fingerprint == anomaly_fingerprint:
-    st.success(f"✅ Alert email automatically sent to **{email_receiver}**.")
 else:
-    st.warning("⚠️ Anomalies detected but email could not be sent. Check your credentials.")
+    # Auto-send status
+    if not anomalies:
+        st.success("✅ No anomalies detected — no alert needed.")
+    elif st.session_state.last_alerted_fingerprint == anomaly_fingerprint:
+        st.success(f"✅ Alert automatically sent to **{default_receiver}**.")
+    else:
+        st.warning("⚠️ Could not auto-send alert. Check your RESEND_API_KEY.")
+
+    # Manual send form — any user can enter their email
+    st.markdown("**Send this report to any email:**")
+    with st.form("manual_email_form"):
+        to_addr = st.text_input("Recipient email", placeholder="enter your email...")
+        send_btn = st.form_submit_button("Send Report")
+
+    if send_btn:
+        if not to_addr:
+            st.error("Please enter a recipient email address.")
+        elif not anomalies:
+            st.warning("No anomalies in the selected period — nothing to send.")
+        else:
+            ok = send_email_alert(
+                resend_api_key, to_addr,
+                f"InsightGuard Report — {len(anomalies)} Anomaly/Anomalies Detected",
+                build_alert_body()
+            )
+            if ok:
+                st.success(f"Report sent to **{to_addr}**!")
+            else:
+                st.error("Failed to send. Check your RESEND_API_KEY.")
+
+
 
 st.caption("InsightGuard | Automated Business Analytics & Anomaly Monitoring System")
